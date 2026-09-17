@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Tesouro das Estrelas - Jogo</title>
+    <style>
+        body { margin: 0; padding: 0; background: #0b071a; overflow: hidden; display: flex; justify: center; align-items: center; height: 100vh; font-family: sans-serif; }
+        canvas { border: 4px solid #3b2d54; border-radius: 8px; }
+    </style>
+    <!-- Importando a biblioteca Kaboom.js para desenvolvimento ágil e sem bugs de física -->
+    <script src="https://unpkg.com"></script>
+</head>
+<body>
+
+<script>
+// Inicializa o motor do jogo adaptado ao design das imagens
+kaboom({
+    width: 800,
+    height: 600,
+    background:, // Fundo escuro espacial
+    global: true
+});
+
+// Variável global de pontuação (mantida entre as fases)
+let score = 0;
+
+// Configuração dos níveis baseada no "Mapa da Jornada"
+const LEVELS = [
+    // FASE 1: Prado da Lua (Introdução com espinhos)
+    [
+        "========================================",
+        "=                                      =",
+        "=                                      =",
+        "=       *     *          *             =",
+        "=     ====   ===        ===            =",
+        "=                                      =",
+        "=   @       *      ^  ^       *     >  =",
+        "========================================",
+    ],
+    // FASE 2: Grutas de Cristal (Plataformas flutuantes)
+    [
+        "========================================",
+        "=   ^   ^       ^             ^        =",
+        "=                                      =",
+        "=       *            ===               =",
+        "=     =====     =            *         =",
+        "=              ===          ====       =",
+        "=   @   ^             ^             >  =",
+        "========================================",
+    ],
+    // FASE 3: Ruínas Alagadas (Buracos e saltos precisos)
+    [
+        "========================================",
+        "=                                      =",
+        "=       *               *              =",
+        "=     =====           =====            =",
+        "=                                      =",
+        "=  @          ^^ ^^          ^^     >  =",
+        "=======      =======        ====    ====",
+    ],
+    // FASE 4: Fundição Mecânica (Inimigos patrulhando)
+    [
+        "========================================",
+        "=                                      =",
+        "=         *          *          *      =",
+        "=       =====      =====      =====    =",
+        "=                                      =",
+        "=  @          }          }          >  =",
+        "========================================",
+    ],
+    // FASE 5: Cofre Astral (O teste final com o tesouro)
+    [
+        "========================================",
+        "=                                      =",
+        "=   ^   ^   ^   ^   ^   ^   ^   ^   ^  =",
+        "=                                      =",
+        "=         *          *          \$      =",
+        "=       =====      =====      =====    =",
+        "=  @  }        }          }            =",
+        "========================================",
+    ]
+];
+
+// Definição visual e comportamental dos elementos (Sprites básicos usando formas nativas)
+scene("game", ({ levelIdx }) => {
+    setGravity(1600);
+
+    // Mapeamento dos caracteres do cenário
+    const levelCfg = {
+        tileWidth: 32,
+        tileHeight: 48,
+        tiles: {
+            "=": () => [rect(32, 48), color(47, 107, 105), area(), body({ isStatic: true }), "ground"], // Chão estilo plataforma
+            "^": () => [rect(24, 24), color(214, 82, 110), area(), "spike"], // Espinhos rosa
+            "*": () => [circle(12), color(253, 222, 89), area(), "star"], // Brilhos/Estrelas coletáveis
+            "}": () => [rect(30, 30), color(226, 126, 150), area(), body(), "enemy", { dir: -1 }], // Inimigos patrulheiros
+            ">": () => [rect(32, 64), color(140, 82, 214), area(), "portal"], // Transição de fase
+            "\$": () => [rect(40, 40), color(255, 215, 0), area(), "chest"], // O Cofre Astral final
+        }
+    };
+
+    const level = addLevel(LEVELS[levelIdx], levelCfg);
+
+    // Criação da Protagonista (Luma)
+    const player = add([
+        rect(28, 40, { radius: 4 }),
+        color(186, 114, 230), // Roxo do boné/personagem
+        pos(64, 200),
+        area(),
+        body(),
+        "player"
+    ]);
+
+    // Interface (Placar de Pontos e Fase Atual)
+    const scoreLabel = add([
+        text(`PONTOS: ${score}\nFASE: 0${levelIdx + 1}`, { size: 18 }),
+        pos(24, 24),
+        fixed()
+    ]);
+
+    // Controles de Movimentação (Setas ou A/D)
+    onKeyDown("left", () => { player.move(-240, 0); });
+    onKeyDown("a", () => { player.move(-240, 0); });
+
+    onKeyDown("right", () => { player.move(240, 0); });
+    onKeyDown("d", () => { player.move(240, 0); });
+
+    onKeyPress("space", () => {
+        if (player.isGrounded()) {
+            player.jump(560);
+        }
+    });
+
+    // IA dos Inimigos (Movimento automático de patrulha)
+    onUpdate("enemy", (e) => {
+        e.move(e.dir * 80, 0);
+    });
+
+    // Inverter direção do inimigo ao bater em paredes para evitar travamentos
+    onCollide("enemy", "ground", (e) => {
+        e.dir = -e.dir;
+    });
+
+    // Mecânica de Coleta de Estrelas
+    player.onCollide("star", (star) => {
+        destroy(star);
+        score += 100;
+        scoreLabel.text = `PONTOS: ${score}\nFASE: 0${levelIdx + 1}`;
+    });
+
+    // Condição de Morte: Ao tocar em Espinhos ou Inimigos, reinicia a fase atual sem bugs
+    player.onCollide("spike", () => {
+        go("game", { levelIdx: levelIdx }); 
+    });
+
+    player.onCollide("enemy", () => {
+        go("game", { levelIdx: levelIdx });
+    });
+
+    // Queda no abismo (Prevenção caso saia do mapa)
+    player.onUpdate(() => {
+        if (player.pos.y > 700) {
+            go("game", { levelIdx: levelIdx });
+        }
+    });
+
+    // Avançar de Fase ao tocar no Portal
+    player.onCollide("portal", () => {
+        if (levelIdx + 1 < LEVELS.length) {
+            go("game", { levelIdx: levelIdx + 1 });
+        }
+    });
+
+    // Vitória Final: Ao coletar o Baú na Fase 5
+    player.onCollide("chest", () => {
+        go("victory");
+    });
+});
+
+// Tela de Vitória
+scene("victory", () => {
+    add([
+        text(`VOCÊ ENCONTROU O IMPOSSÍVEL!\n\nPontuação Final: ${score}\n\nPressione ESPAÇO para reiniciar`, { size: 24, align: "center" }),
+        pos(width() / 2, height() / 2),
+        anchor("center")
+    ]);
+
+    onKeyPress("space", () => {
+        score = 0;
+        go("game", { levelIdx: 0 });
+    });
+});
+
+// Inicializa o jogo na primeira fase
+go("game", { levelIdx: 0 });
+</script>
+
+</body>
+</html>
